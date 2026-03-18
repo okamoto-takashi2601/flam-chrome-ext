@@ -279,7 +279,6 @@ function normalizeDigits(text, length = 6) {
 }
 
 // ---------- FLAM 画面への転記（ここを環境に合わせて調整） ----------
-// ---------- FLAM 画面への転記 ----------
 function applySelectionToFlam(items) {
   if (!items.length) {
     alert("項目が選択されていません。");
@@ -301,8 +300,7 @@ function applySelectionToFlam(items) {
       );
       if (codeInput && first.cusId) {
         codeInput.value = normalizeDigits(first.cusId);
-        codeInput.dispatchEvent(new Event("input", { bubbles: true }));
-        codeInput.dispatchEvent(new Event("change", { bubbles: true }));
+        keyEnter(codeInput);
       }
     }
 
@@ -318,8 +316,8 @@ function applySelectionToFlam(items) {
       );
       if (subjectInput && first.caseName) {
         subjectInput.value = first.caseName;
-        subjectInput.dispatchEvent(new Event("input", { bubbles: true }));
-        subjectInput.dispatchEvent(new Event("change", { bubbles: true }));
+        keyEnter(subjectInput);
+        clickIt(subjectInput)
       }
     }
 
