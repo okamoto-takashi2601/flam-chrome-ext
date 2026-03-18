@@ -180,6 +180,14 @@ function renderPreviewTable(data, overlay) {
       tr.appendChild(td);
     });
 
+    // tr クリックでチェックボックスをトグル
+    tr.style.cursor = "pointer";
+    tr.addEventListener("click", (e) => {
+      // チェックボックス自体のクリックは二重発火しないようスキップ
+      if (e.target === checkbox) return;
+      checkbox.checked = !checkbox.checked;
+    });
+
     tbody.appendChild(tr);
   });
 
@@ -317,7 +325,7 @@ function applySelectionToFlam(items) {
       if (subjectInput && first.caseName) {
         subjectInput.value = first.caseName;
         keyEnter(subjectInput);
-        clickIt(subjectInput)
+        clickIt(subjectInput);
       }
     }
 
