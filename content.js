@@ -1,39 +1,26 @@
 // ---------- ユーティリティ ----------
 async function parseWbQuoteLog() {
+  if (location.origin.includes("googleusercontent.com")) {
+    const raw = localStorage.getItem("wb_quote_log");
+
+    if (raw) {
+      chrome.storage.local.set({
+        wb_quote_log_cache: raw,
+      });
+    }
+  }
+  const stored = await chrome.storage.local.get("wb_quote_log_cache");
+  const raw = stored?.wb_quote_log_cache || null;
+
+  if (!raw) return [];
+
   try {
-    // 1. まず現在ページの localStorage を直接見る（同一オリジンならこれで取れる）
-    let raw = null;
-    try {
-      raw = window.localStorage.getItem("wb_quote_log");
-    } catch (e) {
-      console.warn("localStorage への直接アクセスに失敗:", e);
-    }
-
-    // 2. 見つからなければ chrome.storage.local にキャッシュされた値を使う
-    if (!raw) {
-      const stored = await chrome.storage.local.get("wb_quote_log_cache");
-      raw = stored.wb_quote_log_cache || null;
-    }
-
-    if (!raw) return [];
-
     const data = JSON.parse(raw);
-    if (!Array.isArray(data)) return [];
-    return data;
-  } catch (e) {
-    console.error("wb_quote_log の取得／パースに失敗:", e);
+    return Array.isArray(data) ? data : [];
+  } catch {
     return [];
   }
 }
-
-(async () => {
-  try {
-    const raw = window.localStorage.getItem("wb_quote_log");
-    await chrome.storage.local.set({ wb_quote_log_cache: raw });
-  } catch (e) {
-    console.warn("wb_quote_log のキャッシュ保存に失敗（無視します）:", e);
-  }
-})();
 
 function ensureModalContainer() {
   // 既存があれば削除して作り直す
