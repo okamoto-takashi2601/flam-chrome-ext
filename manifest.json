@@ -1,0 +1,33 @@
+{
+    "manifest_version": 3,
+    "name": "FLAM 見積転記ヘルパー",
+    "version": "1.0.0",
+    "description": "localStorage の wb_quote_log から見積データを選択して FLAM に転記します。",
+    "permissions": [
+        "scripting",
+        "activeTab",
+        "storage"
+    ],
+    "host_permissions": [
+        "https://kigataya.flam.bz/*",
+        "https://*.googleusercontent.com/*"
+    ],
+    "action": {
+        "default_title": "FLAM 見積転記",
+        "default_popup": "popup.html"
+    },
+    "content_scripts": [
+        {
+            "matches": [
+                "https://kigataya.flam.bz/*",
+                "https://*.googleusercontent.com/*",
+                "https://*.google.com/*"
+            ],
+            "js": [
+                "content.js"
+            ],
+            "run_at": "document_idle",
+            "all_frames": true
+        }
+    ]
+}
