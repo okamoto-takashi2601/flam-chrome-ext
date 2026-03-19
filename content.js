@@ -1,14 +1,52 @@
-// ---------- ユーティリティ ----------
-async function parseWbQuoteLog() {
-  if (location.origin.includes("googleusercontent.com")) {
+async function syncWbQuoteLogFromPageToExtension() {
+  try {
     const raw = localStorage.getItem("wb_quote_log");
+    if (!raw) return;
 
-    if (raw) {
-      chrome.storage.local.set({
-        wb_quote_log_cache: raw,
-      });
+    const newData = JSON.parse(raw);
+    if (!Array.isArray(newData)) return;
+
+    // ─── 既存の chrome.storage から isCreated をマージ ───
+    const stored = await chrome.storage.local.get("wb_quote_log_cache");
+    const existingRaw = stored?.wb_quote_log_cache || null;
+    if (existingRaw) {
+      try {
+        const existingData = JSON.parse(existingRaw);
+        if (Array.isArray(existingData)) {
+          // today + time + cusId + caseName をキーに isCreated をマージ
+          const createdSet = new Set(
+            existingData
+              .filter((item) => item.isCreated)
+              .map(
+                (item) =>
+                  `${item.today}_${item.time}_${item.cusId}_${item.caseName}`,
+              ),
+          );
+          // biome-ignore lint/complexity/noForEach: <explanation>
+          newData.forEach((item) => {
+            const key = `${item.today}_${item.time}_${item.cusId}_${item.caseName}`;
+            if (createdSet.has(key)) {
+              item.isCreated = true;
+            }
+          });
+        }
+      } catch {
+        // マージ失敗時はそのまま保存
+      }
     }
+    // ─────────────────────────────────────────────────────
+
+    await chrome.storage.local.set({
+      wb_quote_log_cache: JSON.stringify(newData),
+    });
+    return;
+  } catch (e) {
+    console.warn("[flam-ext] sync失敗:", e);
   }
+}
+
+async function parseWbQuoteLog() {
+  await syncWbQuoteLogFromPageToExtension();
   const stored = await chrome.storage.local.get("wb_quote_log_cache");
   const raw = stored?.wb_quote_log_cache || null;
 
@@ -17,7 +55,8 @@ async function parseWbQuoteLog() {
   try {
     const data = JSON.parse(raw);
     return Array.isArray(data) ? data : [];
-  } catch {
+  } catch (e) {
+    console.warn("[flam-ext] JSON parse failed:", e);
     return [];
   }
 }
@@ -35,8 +74,10 @@ function ensureModalContainer() {
     background: "rgba(0,0,0,0.3)",
     zIndex: "99999",
     display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: "flex-start", // 上寄せ
+    justifyContent: "flex-end", // 右寄せ
+    paddingTop: "60px", // ページ上部からの距離
+    paddingRight: "16px", // 右からの距離
   });
 
   const box = document.createElement("div");
@@ -54,13 +95,23 @@ function ensureModalContainer() {
   });
 
   const header = document.createElement("div");
-  header.textContent = "wb_quote_log から選択";
+  header.textContent = "見積計算履歴 から選択";
   Object.assign(header.style, {
     padding: "8px 12px",
     borderBottom: "1px solid #ddd",
     background: "#f5f5f5",
     fontWeight: "bold",
+    display: "flex",
+    justifyContent: "space-between",
+    gap: "8px",
   });
+
+  const closeBtn = document.createElement("button");
+  closeBtn.textContent = "閉じる";
+  closeBtn.type = "button";
+  closeBtn.style.minWidth = "80px";
+
+  header.appendChild(closeBtn);
 
   const body = document.createElement("div");
   body.id = "flam-wb-quote-modal-body";
@@ -79,11 +130,6 @@ function ensureModalContainer() {
     gap: "8px",
   });
 
-  const closeBtn = document.createElement("button");
-  closeBtn.textContent = "閉じる";
-  closeBtn.type = "button";
-  closeBtn.style.minWidth = "80px";
-
   const applyBtn = document.createElement("button");
   applyBtn.textContent = "選択を転記";
   applyBtn.type = "button";
@@ -93,8 +139,24 @@ function ensureModalContainer() {
   applyBtn.style.border = "none";
   applyBtn.style.cursor = "pointer";
 
-  footer.appendChild(closeBtn);
+  // ─── FLAM クリアボタン ───
+  const clearFlamBtn = document.createElement("button");
+  clearFlamBtn.textContent = "FLAM clear";
+  clearFlamBtn.type = "button";
+  Object.assign(clearFlamBtn.style, {
+    minWidth: "100px",
+    background: "#f44336",
+    color: "#fff",
+    border: "none",
+    cursor: "pointer",
+    padding: "4px 8px",
+  });
+
+  clearFlamBtn.addEventListener("click", (e) =>clearFlamFields(e));
+  // ────────────────────────
+
   footer.appendChild(applyBtn);
+  footer.appendChild(clearFlamBtn);
 
   box.appendChild(header);
   box.appendChild(body);
@@ -120,9 +182,47 @@ function renderPreviewTable(data, overlay) {
   body.innerHTML = "";
 
   if (!data.length) {
-    body.textContent = "見積算出履歴 にデータがありません。";
+    body.textContent = "見積計算履歴 にデータがありません。";
     return;
   }
+
+  // ─── フィルター入力欄 ───
+  const filterWrap = document.createElement("div");
+  Object.assign(filterWrap.style, {
+    marginBottom: "8px",
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
+  });
+
+  const filterLabel = document.createElement("label");
+  filterLabel.textContent = "顧客IDで絞り込み：";
+  filterLabel.style.fontSize = "12px";
+
+  const filterInput = document.createElement("input");
+  filterInput.type = "text";
+  filterInput.placeholder = "顧客IDを入力...";
+  Object.assign(filterInput.style, {
+    padding: "4px 6px",
+    fontSize: "12px",
+    border: "1px solid #ccc",
+    borderRadius: "3px",
+    width: "150px",
+  });
+
+  const clearBtn = document.createElement("button");
+  clearBtn.textContent = "クリア";
+  clearBtn.type = "button";
+  Object.assign(clearBtn.style, {
+    padding: "3px 8px",
+    fontSize: "12px",
+    cursor: "pointer",
+  });
+
+  filterWrap.appendChild(filterLabel);
+  filterWrap.appendChild(filterInput);
+  filterWrap.appendChild(clearBtn);
+  body.appendChild(filterWrap);
 
   const table = document.createElement("table");
   table.style.width = "100%";
@@ -130,7 +230,16 @@ function renderPreviewTable(data, overlay) {
 
   const thead = document.createElement("thead");
   const headRow = document.createElement("tr");
-  const headers = ["選択", "日付", "時刻", "顧客ID", "案件名", "金額"];
+  const headers = [
+    "選択",
+    "日付",
+    "時刻",
+    "顧客ID",
+    "案件名",
+    "金額",
+    "丁数",
+    "仕様",
+  ];
   // biome-ignore lint/complexity/noForEach: <explanation>
   headers.forEach((h) => {
     const th = document.createElement("th");
@@ -149,10 +258,16 @@ function renderPreviewTable(data, overlay) {
   thead.appendChild(headRow);
 
   const tbody = document.createElement("tbody");
+  const rows = [];
 
   data.forEach((item, index) => {
     const tr = document.createElement("tr");
     tr.style.borderBottom = "1px solid #eee";
+
+    if (item.isCreated) {
+      tr.style.background = "#f0f0f0";
+      tr.style.color = "#aaa";
+    }
 
     const selectTd = document.createElement("td");
     selectTd.style.textAlign = "center";
@@ -164,13 +279,14 @@ function renderPreviewTable(data, overlay) {
     const fields = [
       item.today ?? "",
       item.time ?? "",
-      item.cusId ?? item.cusId ?? "",
+      item.cusId ?? "",
       item.caseName ?? "",
       item.price ?? "",
+      item.cav ?? "",
+      item.specs ?? "",
     ];
 
     tr.appendChild(selectTd);
-
     // biome-ignore lint/complexity/noForEach: <explanation>
     fields.forEach((val) => {
       const td = document.createElement("td");
@@ -180,29 +296,89 @@ function renderPreviewTable(data, overlay) {
       tr.appendChild(td);
     });
 
-    // tr クリックでチェックボックスをトグル
     tr.style.cursor = "pointer";
     tr.addEventListener("click", (e) => {
-      // チェックボックス自体のクリックは二重発火しないようスキップ
       if (e.target === checkbox) return;
       checkbox.checked = !checkbox.checked;
     });
 
     tbody.appendChild(tr);
+    rows.push({ tr, cusId: String(item.cusId ?? "") });
   });
 
   table.appendChild(thead);
   table.appendChild(tbody);
   body.appendChild(table);
 
-  // apply ボタンの処理
-  overlay.applyBtn.onclick = () => {
+  // ─── 警告メッセージ ───
+  const warningMsg = document.createElement("div");
+  Object.assign(warningMsg.style, {
+    display: "none",
+    marginTop: "8px",
+    padding: "6px 10px",
+    background: "#fff3cd",
+    border: "1px solid #ffc107",
+    borderRadius: "3px",
+    color: "#856404",
+    fontSize: "12px",
+  });
+  body.appendChild(warningMsg);
+
+  // ─── フィルター処理 ───
+  function applyFilter(keyword) {
+    const kw = String(keyword ?? "")
+      .trim()
+      .toLowerCase();
+    // biome-ignore lint/complexity/noForEach: <explanation>
+    rows.forEach(({ tr, cusId }) => {
+      tr.style.display =
+        kw === "" || cusId.toLowerCase().includes(kw) ? "" : "none";
+    });
+  }
+
+  filterInput.addEventListener("input", (e) => applyFilter(e.target.value));
+  clearBtn.addEventListener("click", () => {
+    filterInput.value = "";
+    applyFilter("");
+  });
+
+  // ─── applyボタンの処理 ───
+  overlay.applyBtn.onclick = async () => {
     const checked = Array.from(
       body.querySelectorAll("input[type=checkbox]:checked"),
     );
+
+    if (!checked.length) {
+      alert("項目が選択されていません。");
+      return;
+    }
+
     const selectedItems = checked.map((cb) => data[Number(cb.dataset.index)]);
+
+    const cusIds = new Set(
+      selectedItems.map((item) => String(item.cusId ?? "")),
+    );
+    if (cusIds.size > 1) {
+      warningMsg.textContent =
+        "⚠️ 複数の顧客IDの案件が選択されています。同一顧客IDのみ選択してください。";
+      warningMsg.style.display = "block";
+      return;
+    }
+    warningMsg.style.display = "none";
+
     applySelectionToFlam(selectedItems);
-    overlay.remove();
+
+    const selectedIndices = new Set(
+      checked.map((cb) => Number(cb.dataset.index)),
+    );
+    const updatedData = data.map((item, i) =>
+      selectedIndices.has(i) ? { ...item, isCreated: true } : item,
+    );
+    await chrome.storage.local.set({
+      wb_quote_log_cache: JSON.stringify(updatedData),
+    });
+
+    renderPreviewTable(updatedData, overlay);
   };
 }
 
@@ -331,8 +507,17 @@ function applySelectionToFlam(items) {
 
     // ===== 明細（グリッド） =====
     // items[0] → 明細1行目, items[1] → 明細2行目 … という形で割り当て
+    let rowOffset = 0; // 列2が空の場合のオフセット
+    for (let i = 1; i <= 10; i++) {
+      const codeEl = document.querySelector(
+        `.css-1bqu24e[data-row="${i}"][data-column="2"][data-inner-row-index="1"] input[data-confirmable="true"]`,
+      );
+      if (codeEl && codeEl.value.length > 0) {
+        rowOffset += 1;
+      }
+    }
     items.forEach((item, i) => {
-      const rowIndex = i + 1; // data-row は 1 始まり
+      const rowIndex = i + 1 + rowOffset; // data-row は 1 始まり
 
       // 商品名（列3, 1段目）
       const codeEl = document.querySelector(
@@ -347,15 +532,22 @@ function applySelectionToFlam(items) {
         `.css-1bqu24e[data-row="${rowIndex}"][data-column="3"][data-inner-row-index="1"] input[data-confirmable="true"]`,
       );
       if (nameCell && item.caseName) {
-        nameCell.value += item.caseName;
+        nameCell.value = item.caseName;
         keyEnter(nameCell);
+      }
+      const specsCell = document.querySelector(
+        `.css-1bqu24e[data-row="${rowIndex}"][data-column="3"][data-inner-row-index="2"] input[data-confirmable="true"]`,
+      );
+      if (specsCell && item.specs) {
+        specsCell.value = item.specs;
+        keyEnter(specsCell);
       }
 
       // 数量（列8, 2段目）
       const quantityCell = document.querySelector(
         `.css-1bqu24e[data-row="${rowIndex}"][data-column="5"][data-inner-row-index="2"] input[data-confirmable="true"]`,
       );
-      if (quantityCell) {
+      if (quantityCell && item.caseName) {
         quantityCell.value = 1;
         quantityCell.dispatchEvent(new Event("input", { bubbles: true }));
         keyEnter(quantityCell);
@@ -364,7 +556,7 @@ function applySelectionToFlam(items) {
       const dieLabelCell = document.querySelector(
         `.css-1bqu24e[data-row="${rowIndex}"][data-column="6"][data-inner-row-index="2"] input[data-confirmable="true"]`,
       );
-      if (dieLabelCell) {
+      if (dieLabelCell && item.caseName) {
         dieLabelCell.value = "型";
         keyEnter(dieLabelCell);
       }
@@ -394,10 +586,81 @@ function applySelectionToFlam(items) {
       if (taxValCell) {
         setSelectValue(taxValCell, "4");
       }
+
+      const cavCell = document.querySelector(
+        `.css-1bqu24e[data-row="${rowIndex}"][data-column="11"][data-inner-row-index="1"] input[data-confirmable="true"]`,
+      );
+      if (cavCell) {
+        cavCell.value = item.cav || "";
+        keyEnter(cavCell);
+      }
     });
   } catch (e) {
-    console.error("転記中にエラー:", e);
     alert("転記中にエラーが発生しました。コンソールを確認してください。");
+  }
+}
+
+// ---------- FLAM 画面のクリア ----------
+function clearFlamFields() {
+  try {
+    // ===== 件名 =====
+    const subjectCaption = Array.from(
+      document.querySelectorAll("div[data-type='caption'].css-13ipad5"),
+    ).find((el) => el.textContent.trim() === "件名");
+
+    if (subjectCaption) {
+      const group = subjectCaption.parentElement;
+      const subjectInput = group.querySelector(
+        "input[data-confirmable='true']",
+      );
+      if (subjectInput ) {
+        subjectInput.value = "";
+        keyEnter(subjectInput);
+      }
+    }
+    // ===== 明細（グリッド）=====
+    for (let rowIndex = 1; rowIndex <= 6; rowIndex++) {
+      const columns = [
+        { col: 2, inner: 1 }, // 商品コード
+        { col: 3, inner: 1 }, // 商品名1段目
+        { col: 3, inner: 2 }, // 商品名2段目（仕様）
+        { col: 5, inner: 2 }, // 数量
+        { col: 6, inner: 2 }, // 単位
+        { col: 7, inner: 2 }, // 金額
+        { col: 11, inner: 1 }, // cav
+      ];
+
+      for (const { col, inner } of columns) {
+        const el = document.querySelector(
+          `.css-1bqu24e[data-row="${rowIndex}"][data-column="${col}"][data-inner-row-index="${inner}"] input[data-confirmable="true"]`,
+        );
+        if (el) {
+          el.value = "";
+          el.dispatchEvent(new Event("input", { bubbles: true }));
+          keyEnter(el);
+        }
+      }
+
+      // select系（外税）
+      const selectCols = [
+        { col: 10, inner: 1 },
+        { col: 10, inner: 2 },
+      ];
+      for (const { col, inner } of selectCols) {
+        const sel = document.querySelector(
+          `.css-1bqu24e[data-row="${rowIndex}"][data-column="${col}"][data-inner-row-index="${inner}"] select`,
+        );
+        if (sel) {
+          sel.value = "";
+          sel.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      }
+    }
+
+    console.log("[flam-ext] FLAM フィールドをクリアしました");
+  } catch (e) {
+    console.error("クリア中にエラー:", e);
+    alert("クリア中にエラーが発生しました。コンソールを確認してください。");
   }
 }
 // ---------- メッセージ受信 ----------
@@ -431,6 +694,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
   if (message?.type === "OPEN_WB_QUOTE_PREVIEW") {
+    if (location.origin.includes("googleusercontent.com")) {
+      sendResponse({ ok: false });
+      return;
+    }
+
     (async () => {
       const data = await parseWbQuoteLog();
       const overlay = ensureModalContainer();

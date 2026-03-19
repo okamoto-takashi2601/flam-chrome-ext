@@ -17,79 +17,63 @@ function sendMessage(tabId, message) {
 
 async function ensureContentScript(tabId) {
   try {
-    // すでに受信側がいるなら何もしない
     await sendMessage(tabId, { type: "__PING__" });
     return;
   } catch {
-    // いないなら allFrames で注入してから再度
+    // いないなら allFrames で注入
   }
 
   await chrome.scripting.executeScript({
     target: { tabId, allFrames: true },
-    files: ["content.js"]
+    files: ["content.js"],
   });
+
+  // 注入後に少し待つ
+  await new Promise((resolve) => setTimeout(resolve, 300));
 }
 
+const btn = document.getElementById("openPreview");
+const status = document.getElementById("status");
 
-document.getElementById("openPreview").addEventListener("click", async () => {
-    const status = document.getElementById("status");
-    try {
-      const tab = await getActiveTab();
-      if (!tab?.id) {
-        status.textContent = "タブが取得できませんでした。";
-        return;
-      }
-    
-      await ensureContentScript(tab.id);
-      const res = await sendMessage(tab.id, { type: "CACHE_WB_QUOTE_LOG" });
-      if (!res?.ok) {
-        status.textContent = "キャッシュに失敗しました。";
-        return;
-      }
-    
-      if (res.found) {
-        status.textContent = `キャッシュしました（件数: ${res.count}）。次にFLAM見積画面で「表示」を押してください。`;
-      } else {
-        status.textContent = "このページの localStorage に wb_quote_log が見つかりません。";
-      }
-    } catch (e) {
-      console.error(e);
-      status.textContent = "このページでは実行できません（権限/対象URL外の可能性）。";
-    }
-  status.textContent = "wb_quote_log の状態を確認中…";
+chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+  const tab = tabs[0];
+  const url = tab?.url || "";
+  const isGoogleusercontent = url.includes("script.google.com");
 
-  try {
-    // まず chrome.storage.local にキャッシュがあるか確認
-    const stored = await chrome.storage.local.get("wb_quote_log_cache");
-    if (stored.wb_quote_log_cache) {
+  if (isGoogleusercontent) {
+    btn.textContent = "データ更新";
+    btn.addEventListener("click", async () => {
+      status.textContent = "更新中...";
       try {
-        const arr = JSON.parse(stored.wb_quote_log_cache);
-        status.textContent = `キャッシュ件数: ${Array.isArray(arr) ? arr.length : "不明"} 件。プレビューを表示します…`;
-      } catch {
-        status.textContent = "キャッシュはありますが JSON の解析に失敗しました。";
+        await ensureContentScript(tab.id);
+        const res = await sendMessage(tab.id, { type: "CACHE_WB_QUOTE_LOG" });
+        if (res?.ok) {
+          status.textContent = `✅ 更新しました（${res.count}件）`;
+        } else {
+          status.textContent = "❌ データが見つかりません";
+        }
+      } catch (e) {
+        status.textContent = `❌ 更新失敗: ${e.message}`;
       }
-    } else {
-      status.textContent = "キャッシュが見つかりません。先に wb_quote_log を持つページを開いてください。";
-    }
-
-    const tab = await getActiveTab();
-    if (!tab || !tab.id) {
-      status.textContent += " （タブ取得に失敗）";
-      return;
-    }
-
-    // content.js にメッセージ送信して、モーダル表示を指示
-    try {
-      await ensureContentScript(tab.id);
-      const res = await sendMessage(tab.id, { type: "OPEN_WB_QUOTE_PREVIEW" });
-      status.textContent = res?.ok
-        ? "プレビューを表示しました。"
-        : "プレビュー表示に失敗しました。";
-    } catch {
-      status.textContent = "このページでは実行できません。FLAMの見積画面を開いてください。";
-    }
-  } catch (e) {
-    console.error(e);
-    status.textContent = "エラーが発生しました。コンソールを確認してください。";
+    });
+  } else {
+    btn.textContent = "見積計算履歴を表示";
+    btn.addEventListener("click", async () => {
+      status.textContent = "表示中...";
+      try {
+        await ensureContentScript(tab.id);
+        const res = await sendMessage(tab.id, {
+          type: "OPEN_WB_QUOTE_PREVIEW",
+        });
+        if (res?.ok) {
+          status.textContent = "";
+          window.close();
+        } else {
+          status.textContent = "❌ 表示失敗";
+        }
+      } catch (e) {
+        status.textContent = `❌ 失敗: ${e.message}`;
+      }
+    });
   }
 });
