@@ -81,7 +81,7 @@ function ensureModalContainer() {
 
   const box = document.createElement("div");
   Object.assign(box.style, {
-    width: "800px",
+    width: "500px",
     maxHeight: "80vh",
     background: "#fff",
     borderRadius: "4px",
@@ -237,22 +237,38 @@ function renderPreviewTable(data, overlay) {
     marginBottom: "8px",
     display: "flex",
     alignItems: "center",
-    gap: "6px",
+    gap: "10px",
+    flexWrap: "wrap",
   });
 
   const filterLabel = document.createElement("label");
   filterLabel.textContent = "顧客IDで絞り込み：";
   filterLabel.style.fontSize = "12px";
 
-  const filterInput = document.createElement("input");
-  filterInput.type = "text";
-  filterInput.placeholder = "顧客IDを入力...";
-  Object.assign(filterInput.style, {
+  const cusIdList = [
+    ...new Set(data.map((item) => String(item.cusId ?? "")).filter(Boolean)),
+  ];
+
+  const filterSelect = document.createElement("select");
+  Object.assign(filterSelect.style, {
     padding: "4px 6px",
     fontSize: "12px",
     border: "1px solid #ccc",
     borderRadius: "3px",
-    width: "150px",
+    minWidth: "120px",
+  });
+
+  const allOption = document.createElement("option");
+  allOption.value = "";
+  allOption.textContent = "すべて";
+  filterSelect.appendChild(allOption);
+
+  // biome-ignore lint/complexity/noForEach: <explanation>
+  cusIdList.forEach((cusId) => {
+    const option = document.createElement("option");
+    option.value = cusId;
+    option.textContent = cusId;
+    filterSelect.appendChild(option);
   });
 
   const clearBtn = document.createElement("button");
@@ -264,9 +280,32 @@ function renderPreviewTable(data, overlay) {
     cursor: "pointer",
   });
 
+  // ─── 転記済み表示チェックボックス ───
+  const showCreatedWrap = document.createElement("label");
+  Object.assign(showCreatedWrap.style, {
+    display: "flex",
+    alignItems: "center",
+    gap: "4px",
+    fontSize: "12px",
+    cursor: "pointer",
+    marginLeft: "8px",
+  });
+
+  const showCreatedCheck = document.createElement("input");
+  showCreatedCheck.type = "checkbox";
+  showCreatedCheck.checked = false; // デフォルトはチェックなし
+
+  const showCreatedLabel = document.createElement("span");
+  showCreatedLabel.textContent = "転記済分を表示";
+
+  showCreatedWrap.appendChild(showCreatedCheck);
+  showCreatedWrap.appendChild(showCreatedLabel);
+  // ────────────────────────────────────
+
   filterWrap.appendChild(filterLabel);
-  filterWrap.appendChild(filterInput);
+  filterWrap.appendChild(filterSelect);
   filterWrap.appendChild(clearBtn);
+  filterWrap.appendChild(showCreatedWrap);
   body.appendChild(filterWrap);
 
   const table = document.createElement("table");
@@ -275,16 +314,7 @@ function renderPreviewTable(data, overlay) {
 
   const thead = document.createElement("thead");
   const headRow = document.createElement("tr");
-  const headers = [
-    "選択",
-    "日付",
-    "時刻",
-    "顧客ID",
-    "案件名",
-    "金額",
-    "丁数",
-    "仕様",
-  ];
+  const headers = ["選択", "日付", "顧客ID", "案件名", "金額"];
   // biome-ignore lint/complexity/noForEach: <explanation>
   headers.forEach((h) => {
     const th = document.createElement("th");
@@ -322,13 +352,11 @@ function renderPreviewTable(data, overlay) {
     selectTd.appendChild(checkbox);
 
     const fields = [
-      item.today ?? "",
-      item.time ?? "",
+      // biome-ignore lint/style/useTemplate: <explanation>
+      item.today ? item.today + " " + item.time : "",
       item.cusId ?? "",
       item.caseName ?? "",
       item.price ?? "",
-      item.cav ?? "",
-      item.specs ?? "",
     ];
 
     tr.appendChild(selectTd);
@@ -348,14 +376,14 @@ function renderPreviewTable(data, overlay) {
     });
 
     tbody.appendChild(tr);
-    rows.push({ tr, cusId: String(item.cusId ?? "") });
+    rows.push({
+      tr,
+      cusId: String(item.cusId ?? ""),
+      isCreated: !!item.isCreated,
+    });
   });
 
   table.appendChild(thead);
-  table.appendChild(tbody);
-  body.appendChild(table);
-
-  // ─── 警告メッセージ ───
   const warningMsg = document.createElement("div");
   Object.assign(warningMsg.style, {
     display: "none",
@@ -368,24 +396,37 @@ function renderPreviewTable(data, overlay) {
     fontSize: "12px",
   });
   body.appendChild(warningMsg);
+  table.appendChild(tbody);
+  body.appendChild(table);
+
+  // ─── 警告メッセージ ───
 
   // ─── フィルター処理 ───
-  function applyFilter(keyword) {
-    const kw = String(keyword ?? "")
+  function applyFilter() {
+    const kw = String(filterSelect.value ?? "")
       .trim()
       .toLowerCase();
+    const showCreated = showCreatedCheck.checked;
+
     // biome-ignore lint/complexity/noForEach: <explanation>
-    rows.forEach(({ tr, cusId }) => {
-      tr.style.display =
-        kw === "" || cusId.toLowerCase().includes(kw) ? "" : "none";
+    rows.forEach(({ tr, cusId, isCreated }) => {
+      const matchId = kw === "" || cusId.toLowerCase() === kw;
+      // 転記済みチェックがOFFの場合、isCreated=trueは非表示
+      const matchCreated = showCreated || !isCreated;
+      tr.style.display = matchId && matchCreated ? "" : "none";
     });
   }
 
-  filterInput.addEventListener("input", (e) => applyFilter(e.target.value));
+  filterSelect.addEventListener("change", () => applyFilter());
   clearBtn.addEventListener("click", () => {
-    filterInput.value = "";
-    applyFilter("");
+    filterSelect.value = "";
+    applyFilter();
   });
+  showCreatedCheck.addEventListener("change", () => applyFilter());
+
+  // 初期表示時にフィルターを適用（デフォルト：転記済み非表示）
+  applyFilter();
+  // ─────────────────────
 
   // ─── applyボタンの処理 ───
   overlay.applyBtn.onclick = async () => {
@@ -398,7 +439,14 @@ function renderPreviewTable(data, overlay) {
       return;
     }
 
-    const selectedItems = checked.map((cb) => data[Number(cb.dataset.index)]);
+    const selectedItems = checked
+      .map((cb) => data[Number(cb.dataset.index)])
+      .filter(Boolean); // undefined を除外
+
+    if (!selectedItems.length) {
+      alert("選択したデータが見つかりません。");
+      return;
+    }
 
     const cusIds = new Set(
       selectedItems.map((item) => String(item.cusId ?? "")),
@@ -781,4 +829,3 @@ if (location.hostname === "kigataya.flam.bz") {
   });
   observer.observe(document.body, { childList: true, subtree: true });
 }
-// ────────────────────────────
