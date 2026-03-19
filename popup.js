@@ -48,7 +48,7 @@ chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
         await ensureContentScript(tab.id);
         const res = await sendMessage(tab.id, { type: "CACHE_WB_QUOTE_LOG" });
         if (res?.ok) {
-          status.textContent = `✅ 更新しました（${res.count}件）`;
+          status.textContent = "✅ 更新しました";
         } else {
           status.textContent = "❌ データが見つかりません";
         }

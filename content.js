@@ -62,7 +62,6 @@ async function parseWbQuoteLog() {
 }
 
 function ensureModalContainer() {
-  // 既存があれば削除して作り直す
   const existing = document.getElementById("flam-wb-quote-modal");
   if (existing) existing.remove();
 
@@ -74,10 +73,10 @@ function ensureModalContainer() {
     background: "rgba(0,0,0,0.3)",
     zIndex: "99999",
     display: "flex",
-    alignItems: "flex-start", // 上寄せ
-    justifyContent: "flex-end", // 右寄せ
-    paddingTop: "60px", // ページ上部からの距離
-    paddingRight: "16px", // 右からの距離
+    alignItems: "flex-start",
+    justifyContent: "flex-end",
+    paddingTop: "60px",
+    paddingRight: "16px",
   });
 
   const box = document.createElement("div");
@@ -103,14 +102,55 @@ function ensureModalContainer() {
     fontWeight: "bold",
     display: "flex",
     justifyContent: "space-between",
+    alignItems: "center",
     gap: "8px",
   });
 
-  const closeBtn = document.createElement("button");
-  closeBtn.textContent = "閉じる";
-  closeBtn.type = "button";
-  closeBtn.style.minWidth = "80px";
+  // ─── データ更新ボタン ───
+  const refreshBtn = document.createElement("button");
+  refreshBtn.textContent = "🔄 データ更新";
+  refreshBtn.type = "button";
+  Object.assign(refreshBtn.style, {
+    marginLeft: "auto",
+    marginRight: "8px",
+    padding: "3px 10px",
+    fontSize: "12px",
+    cursor: "pointer",
+    background: "#2196f3",
+    color: "#fff",
+    border: "none",
+    borderRadius: "5px",
+    minWidth: "30px",
+    minHeight: "30px",
+  });
 
+  refreshBtn.addEventListener("click", async () => {
+    refreshBtn.textContent = "更新中...";
+    refreshBtn.disabled = true;
+    try {
+      const data = await parseWbQuoteLog();
+      renderPreviewTable(data, overlay);
+      refreshBtn.textContent = "🔄 データ更新";
+    } catch (e) {
+      console.warn("[flam-ext] データ更新失敗:", e);
+      refreshBtn.textContent = "❌ 失敗";
+    } finally {
+      refreshBtn.disabled = false;
+    }
+  });
+  // ────────────────────────
+
+  const closeBtn = document.createElement("button");
+  closeBtn.textContent = "✖";
+  closeBtn.type = "button";
+  Object.assign(closeBtn.style, {
+    background: "red",
+    borderRadius: "5px",
+    minWidth: "30px",
+    minHeight: "30px",
+  });
+
+  header.appendChild(refreshBtn);
   header.appendChild(closeBtn);
 
   const body = document.createElement("div");
@@ -133,11 +173,15 @@ function ensureModalContainer() {
   const applyBtn = document.createElement("button");
   applyBtn.textContent = "選択を転記";
   applyBtn.type = "button";
-  applyBtn.style.minWidth = "100px";
-  applyBtn.style.background = "#4caf50";
-  applyBtn.style.color = "#fff";
-  applyBtn.style.border = "none";
-  applyBtn.style.cursor = "pointer";
+  Object.assign(applyBtn.style, {
+    minWidth: "100px",
+    background: "#4caf50",
+    color: "#fff",
+    border: "none",
+    cursor: "pointer",
+    padding: "4px 8px",
+    borderRadius: "5px",
+  });
 
   // ─── FLAM クリアボタン ───
   const clearFlamBtn = document.createElement("button");
@@ -150,9 +194,10 @@ function ensureModalContainer() {
     border: "none",
     cursor: "pointer",
     padding: "4px 8px",
+    borderRadius: "5px",
   });
 
-  clearFlamBtn.addEventListener("click", (e) =>clearFlamFields(e));
+  clearFlamBtn.addEventListener("click", (e) => clearFlamFields(e));
   // ────────────────────────
 
   footer.appendChild(applyBtn);
@@ -613,7 +658,7 @@ function clearFlamFields() {
       const subjectInput = group.querySelector(
         "input[data-confirmable='true']",
       );
-      if (subjectInput ) {
+      if (subjectInput) {
         subjectInput.value = "";
         keyEnter(subjectInput);
       }
@@ -709,3 +754,31 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 });
+
+// ─── FLAMページで自動表示 ───
+if (location.hostname === "kigataya.flam.bz") {
+  let lastUrl = location.href;
+
+  async function showTableIfEstimatesEdit() {
+    if (!location.pathname.startsWith("/estimates/edit")) return;
+    // 既にモーダルが表示中なら再表示しない
+    if (document.getElementById("flam-wb-quote-modal")) return;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const data = await parseWbQuoteLog();
+    const overlay = ensureModalContainer();
+    renderPreviewTable(data, overlay);
+  }
+
+  // 初回表示
+  window.addEventListener("load", () => showTableIfEstimatesEdit());
+
+  // SPA 対応：URL変化を監視
+  const observer = new MutationObserver(() => {
+    if (location.href !== lastUrl) {
+      lastUrl = location.href;
+      showTableIfEstimatesEdit();
+    }
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+}
+// ────────────────────────────
