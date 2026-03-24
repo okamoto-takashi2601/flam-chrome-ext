@@ -5,7 +5,18 @@ async function syncWbQuoteLogFromPageToExtension() {
 
     const newData = JSON.parse(raw);
     if (!Array.isArray(newData)) return;
-
+    // ─── 2日以内のデータのみに絞り込む ───
+    const now = new Date();
+    const twoDaysAgo = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
+    const filteredData = newData.filter((item) => {
+      if (!item.today) return false;
+      const dateStr = String(item.today).replace(/\//g, "-");
+      const timeStr = item.time ? String(item.time) : "00:00";
+      const itemDate = new Date(`${dateStr}T${timeStr}`);
+      if (Number.isNaN(itemDate.getTime())) return true; // パース失敗は残す
+      return itemDate >= twoDaysAgo;
+    });
+    // ─────────────────────────────────────
     // ─── 既存の chrome.storage から isCreated をマージ ───
     const stored = await chrome.storage.local.get("wb_quote_log_cache");
     const existingRaw = stored?.wb_quote_log_cache || null;
@@ -23,7 +34,7 @@ async function syncWbQuoteLogFromPageToExtension() {
               ),
           );
           // biome-ignore lint/complexity/noForEach: <explanation>
-          newData.forEach((item) => {
+          filteredData.forEach((item) => {
             const key = `${item.today}_${item.time}_${item.cusId}_${item.caseName}`;
             if (createdSet.has(key)) {
               item.isCreated = true;
@@ -37,7 +48,7 @@ async function syncWbQuoteLogFromPageToExtension() {
     // ─────────────────────────────────────────────────────
 
     await chrome.storage.local.set({
-      wb_quote_log_cache: JSON.stringify(newData),
+      wb_quote_log_cache: JSON.stringify(filteredData),
     });
     return;
   } catch (e) {
