@@ -70,7 +70,7 @@ function ensureModalContainer() {
   Object.assign(overlay.style, {
     position: "fixed",
     inset: "0",
-    background: "rgba(0,0,0,0.3)",
+    background: "transparent",
     zIndex: "99999",
     display: "flex",
     alignItems: "flex-start",
