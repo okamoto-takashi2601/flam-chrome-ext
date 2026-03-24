@@ -829,3 +829,103 @@ if (location.hostname === "kigataya.flam.bz") {
   });
   observer.observe(document.body, { childList: true, subtree: true });
 }
+
+if (
+  location.hostname.includes("googleusercontent.com") &&
+  localStorage.getItem("wb_quote_log")
+) {
+  // ─── ページ内データ更新ボタンを追加 ───
+  function ensureRefreshButton() {
+    if (document.getElementById("flam-ext-refresh-btn")) return;
+
+    const btn = document.createElement("button");
+    btn.id = "flam-ext-refresh-btn";
+    btn.textContent = "🔄 データ更新";
+    Object.assign(btn.style, {
+      position: "fixed",
+      top: "0px",
+      right: "10px",
+      zIndex: "99999",
+      padding: "6px 14px",
+      background: "silver",
+      color: "#fff",
+      border: "none",
+      borderRadius: "5px",
+      cursor: "pointer",
+      boxShadow: "0 2px 6px rgba(0,0,0,0.3)",
+      fontSize: "18px",
+    });
+
+    btn.addEventListener("click", async () => {
+      btn.textContent = "更新中...";
+      btn.disabled = true;
+      try {
+        await syncWbQuoteLogFromPageToExtension();
+        const stored = await chrome.storage.local.get("wb_quote_log_cache");
+        const raw = stored?.wb_quote_log_cache || "[]";
+        const data = JSON.parse(raw);
+        btn.textContent = "✅ 更新完了";
+        setTimeout(() => {
+          btn.textContent = "🔄 データ更新";
+          btn.disabled = false;
+        }, 2000);
+      } catch (e) {
+        btn.textContent = "❌ 失敗";
+        setTimeout(() => {
+          btn.textContent = "🔄 データ更新";
+          btn.disabled = false;
+        }, 2000);
+      }
+    });
+
+    document.body.appendChild(btn);
+  }
+
+  // DOM準備後にボタンを追加
+  if (document.body) {
+    ensureRefreshButton();
+  } else {
+    window.addEventListener("load", () => ensureRefreshButton());
+  }
+
+  // 初回同期
+  (async () => {
+    try {
+      await syncWbQuoteLogFromPageToExtension();
+      console.log("[flam-ext] 初回同期完了");
+    } catch (e) {
+      if (!e?.message?.includes("Extension context invalidated")) {
+        console.warn("[flam-ext] 初回sync失敗:", e);
+      }
+    }
+  })();
+
+  // localStorage の変更を監視
+  window.addEventListener("storage", async (e) => {
+    if (e.key === "wb_quote_log") {
+      try {
+        await syncWbQuoteLogFromPageToExtension();
+      } catch (e) {
+        if (!e?.message?.includes("Extension context invalidated")) {
+          console.warn("[flam-ext] storage sync失敗:", e);
+        }
+      }
+    }
+  });
+
+  // 定期同期（5秒ごと）
+  const intervalId = setInterval(() => {
+    if (!chrome.runtime?.id) {
+      clearInterval(intervalId);
+      return;
+    }
+    syncWbQuoteLogFromPageToExtension().catch((e) => {
+      if (e?.message?.includes("Extension context invalidated")) {
+        clearInterval(intervalId);
+        return;
+      }
+      console.warn("[flam-ext] sync失敗:", e);
+    });
+  }, 5000);
+}
+// ──────────────────────────────────────────────────────────────
