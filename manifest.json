@@ -3,6 +3,8 @@
   "name": "FLAM 見積転記ヘルパー",
   "version": "1.0.0",
   "description": "localStorage の wb_quote_log から見積データを選択して FLAM に転記します。",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA4wqjzofAONSx/wKTL4QnY1+O8fJgO6AZtMRM7iEUUdeANcFKK1A9FOwXT2p7TcDSWZdybBBmTo0j3jUtD1f00x35Y1WKI5ypzdE1ejnvfM5AK4R9xNkDxHiYhQwmaHilnZ5Q4QDKHDF5rmzCPiX7FM2TnMNKXyU+NACvVDP8SjIluVPrbAhh647aBynnby7v+AOMUkq0TG8rYk9KI+Tyl5c+ob3qQ4QLGdsB+CgZ8apdaMsJFnUZX5Lp3XfSit3ZbTwDqSSwSnK/H8tRw3n29lXZ+6E+Ex9PxJLU3U5ybNq+rZkiFSj7Sui/aL8RTUSx3ISD1eWSjIqFzclN4QkGXwIDAQAB",
+  "update_url": "https://d-file-creater.vercel.app/extension/quote-to-flam/update.xml",
   "permissions": ["scripting", "activeTab", "storage"],
   "host_permissions": [
     "https://kigataya.flam.bz/*",
